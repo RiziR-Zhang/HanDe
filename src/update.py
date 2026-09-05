@@ -3,12 +3,14 @@ from datetime import date
 import os
 import subprocess
 import sys
-LOG_PATH = r"D:\myprograms\interest\abc_tracker\logs\log.txt"
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+LOG_PATH = PROJECT_ROOT / "logs" / "log.txt"
+WRITE_FILE_PATH = PROJECT_ROOT / "src" / "write_file.py"
 CHAR_PER_LINE = 10 + 16 + 2
 
 def today_has_bad_record():
     today = date.today()
-    file = pathlib.Path(LOG_PATH)
+    file = LOG_PATH
     bad_record = False
     with file.open("r") as f:
         log_size = f.seek(0, os.SEEK_END)
@@ -28,4 +30,4 @@ def today_has_bad_record():
     return bad_record
 
 if not today_has_bad_record():
-    subprocess.run(["pythonw", r"D:\myprograms\interest\abc_tracker\write_file.py", "--mark"])
+    subprocess.run(["pythonw", str(WRITE_FILE_PATH), "--mark"])
