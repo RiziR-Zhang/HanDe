@@ -8,8 +8,8 @@ Prompts for the check-in note path, then creates:
 
 Run:  python src/setup.py
 
-Stdlib only. Windows-specific behaviour lives in the functions below, so a
-future macOS/Linux port replaces those functions, not main().
+Stdlib only. The Windows-specific functions below are the only thing to swap
+for a macOS/Linux port (launchd/cron + .desktop); main() is platform-neutral.
 """
 import ctypes
 import pathlib
@@ -30,47 +30,19 @@ SHORTCUT_NAME = "abc_tracker.lnk"
 DAILY_TIME = "23:55"
 
 ELEVATED = "--elevated" in sys.argv
-CREATE_NO_WINDOW = 0x08000000  # no console flash even if run via pythonw
 
-
-# ---------------------------------------------------------------------------
-# Platform-neutral helpers
-# ---------------------------------------------------------------------------
 
 def run(args):
     """Run a command, capturing output decoded in the ANSI codepage (mbcs)."""
-    p = subprocess.run(args, capture_output=True, creationflags=CREATE_NO_WINDOW)
+    p = subprocess.run(args, capture_output=True)
     return p.returncode, p.stdout.decode("mbcs", "replace"), p.stderr.decode("mbcs", "replace")
-
-
-def console_python():
-    """An executable that shows a console (python.exe, not pythonw.exe)."""
-    exe = pathlib.Path(sys.executable)
-    if exe.name.lower() == "pythonw.exe":
-        sibling = exe.with_name("python.exe")
-        if sibling.exists():
-            return str(sibling)
-    return sys.executable
-
-
-# ---------------------------------------------------------------------------
-# Windows-specific
-# ---------------------------------------------------------------------------
-
-def access_denied_text():
-    """OS-localized 'Access is denied.' for error 5 (e.g. '拒绝访问。')."""
-    FROM_SYSTEM, IGNORE_INSERTS = 0x00001000, 0x00000200
-    buf = ctypes.create_unicode_buffer(256)
-    ctypes.windll.kernel32.FormatMessageW(FROM_SYSTEM | IGNORE_INSERTS, None, 5, 0,
-                                          buf, len(buf), None)
-    return buf.value.strip()
 
 
 def relaunch_elevated():
     """Re-run this script as administrator; the UAC prompt appears here."""
     script = pathlib.Path(__file__).resolve()
     rc = ctypes.windll.shell32.ShellExecuteW(
-        None, "runas", console_python(), f'"{script}" --elevated', None, 1)
+        None, "runas", sys.executable, f'"{script}" --elevated', None, 1)
     return rc > 32  # e.g. 1223 = ERROR_CANCELLED
 
 
@@ -84,10 +56,9 @@ def create_task():
     if code == 0:
         print(f"计划任务 '{TASK_NAME}' 已创建：每天 {DAILY_TIME}。")
         return True
-    # schtasks exits 1 for every error, so detect access-denied via stderr text.
-    if not ELEVATED and (access_denied_text() in err
-                         or "access is denied" in err.lower()):
-        print("创建计划任务需要管理员权限，正在申请提权...")
+    # schtasks exits 1 for every error, so retry once elevated on any failure.
+    if not ELEVATED:
+        print("创建计划任务失败，尝试申请管理员权限...")
         if relaunch_elevated():
             sys.exit(0)  # the elevated child redoes the work; parent hands off
         print("提权被取消（UAC 未授权），计划任务未创建。")
@@ -123,10 +94,6 @@ def create_shortcut():
     return False
 
 
-# ---------------------------------------------------------------------------
-# Interaction (skipped when re-running elevated)
-# ---------------------------------------------------------------------------
-
 def ask_checkin_path():
     """Ask for the check-in note path, then persist it to checkin_path.txt."""
     current = (CHECKIN_PATH_FILE.read_text(encoding="utf-8").strip()
@@ -154,7 +121,7 @@ def main():
     if not shutil.which("pythonw"):
         print("错误：PATH 中找不到 'pythonw'（应位于 python.exe 旁）。")
         return 1
-    LOG_DIR.mkdir(parents=True, exist_ok=True)  # both scripts append here
+    LOG_DIR.mkdir(parents=True, exist_ok=True)  # logs/ is gitignored; both scripts append here
     if not ELEVATED:
         ask_checkin_path()
     ok = create_shortcut()  # never needs admin
