@@ -25,8 +25,6 @@ WRITE_LOG_SCRIPT = SRC_DIR / "write_log.py"
 CHECKIN_PATH_FILE = PROJECT_ROOT / "checkin_path.txt"
 DEFAULT_CHECKIN_PATH = r"D:\vardocs\MyObsidian\Sched\ABC.md"  # keep in sync with write_file.py
 
-TASK_NAME = "abc_tracker_update"
-SHORTCUT_NAME = "abc_tracker.lnk"
 DAILY_TIME = "23:55"
 
 ELEVATED = "--elevated" in sys.argv
@@ -36,6 +34,13 @@ def run(args):
     """Run a command, capturing output decoded in the ANSI codepage (mbcs)."""
     p = subprocess.run(args, capture_output=True)
     return p.returncode, p.stdout.decode("mbcs", "replace"), p.stderr.decode("mbcs", "replace")
+
+
+def checkin_stem():
+    """Filename stem of the check-in note (dir + suffix stripped)."""
+    cfg = (CHECKIN_PATH_FILE.read_text(encoding="utf-8").strip()
+           if CHECKIN_PATH_FILE.exists() else DEFAULT_CHECKIN_PATH)
+    return pathlib.Path(cfg).stem
 
 
 def relaunch_elevated():
@@ -49,12 +54,13 @@ def relaunch_elevated():
 def create_task():
     """Register the daily 23:55 task; absolute paths inside /TR."""
     pythonw = shutil.which("pythonw")
+    task = f"{checkin_stem()}_tracker_update"
     tr = f'"{pythonw}" "{UPDATE_SCRIPT}"'  # inner quotes stored verbatim in the task
-    args = ["schtasks", "/Create", "/TN", TASK_NAME,
+    args = ["schtasks", "/Create", "/TN", task,
             "/TR", tr, "/SC", "DAILY", "/ST", DAILY_TIME, "/F"]
     code, out, err = run(args)
     if code == 0:
-        print(f"计划任务 '{TASK_NAME}' 已创建：每天 {DAILY_TIME}。")
+        print(f"计划任务 '{task}' 已创建：每天 {DAILY_TIME}。")
         return True
     # schtasks exits 1 for every error, so retry once elevated on any failure.
     if not ELEVATED:
@@ -63,7 +69,7 @@ def create_task():
             sys.exit(0)  # the elevated child redoes the work; parent hands off
         print("提权被取消（UAC 未授权），计划任务未创建。")
         return False
-    print(f"创建计划任务 '{TASK_NAME}' 失败：{err.strip() or out.strip() or code}")
+    print(f"创建计划任务 '{task}' 失败：{err.strip() or out.strip() or code}")
     return False
 
 
@@ -75,16 +81,17 @@ def ps_lit(s):
 def create_shortcut():
     """Desktop .lnk via PowerShell WScript.Shell COM; absolute paths inside."""
     pythonw = shutil.which("pythonw")
+    lnk = f"{checkin_stem()}_detracker.lnk"
     args_val = '"' + str(WRITE_LOG_SCRIPT) + '"'  # .lnk Arguments value
     ps_cmd = (
         "$ws = New-Object -ComObject WScript.Shell; "
         "$d = [Environment]::GetFolderPath('Desktop'); "  # OneDrive-safe
-        "$s = $ws.CreateShortcut($d + '\\" + SHORTCUT_NAME + "'); "
+        "$s = $ws.CreateShortcut($d + '\\" + lnk + "'); "
         f"$s.TargetPath = {ps_lit(pythonw)}; "
         f"$s.Arguments = {ps_lit(args_val)}; "
         f"$s.WorkingDirectory = {ps_lit(str(PROJECT_ROOT))}; "
         "$s.Save(); "
-        "Write-Output ($d + '\\" + SHORTCUT_NAME + "')"
+        "Write-Output ($d + '\\" + lnk + "')"
     )
     code, out, err = run(["powershell.exe", "-NoProfile", "-Command", ps_cmd])
     if code == 0:
@@ -129,7 +136,7 @@ def main():
         ok = False
     if ok:
         print("配置完成。计划任务每天 23:55 运行；桌面已建快捷方式。")
-        print(f"验证：schtasks /Query /TN {TASK_NAME}")
+        print(f"验证：schtasks /Query /TN {checkin_stem()}_tracker_update")
     return 0 if ok else 1
 
 
